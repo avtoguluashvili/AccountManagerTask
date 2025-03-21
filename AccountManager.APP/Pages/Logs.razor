@@ -1,0 +1,153 @@
+﻿@page "/logs"
+@using System.Timers
+@using AccountManager.Domain.Entities
+@inject HttpClient Http
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header bg-secondary text-white">
+            <h3 class="mb-0">Account Changes Log</h3>
+        </div>
+        <div class="card-body">
+            @if (_logs == null)
+            {
+                <p>Loading...</p>
+            }
+            else
+            {
+                <!-- Optional dynamic search box for logs -->
+                <div class="row mb-3">
+                    <div class="col-sm-4">
+                        <input class="form-control"
+                               placeholder="Search by changed field..."
+                               @oninput="OnSearchChanged"
+                               value="@_searchTerm"/>
+                    </div>
+                </div>
+
+                <table class="table table-bordered table-hover">
+                    <thead class="table-light">
+                    <tr>
+                        <th @onclick="() => SortByColumn(nameof(AccountChangesLog.LogId))" style="cursor:pointer">
+                            LogId @SortIcon(nameof(AccountChangesLog.LogId))
+                        </th>
+                        <th @onclick="() => SortByColumn(nameof(AccountChangesLog.AccountId))" style="cursor:pointer">
+                            AccountId @SortIcon(nameof(AccountChangesLog.AccountId))
+                        </th>
+                        <th @onclick="() => SortByColumn(nameof(AccountChangesLog.ChangedField))" style="cursor:pointer">
+                            Changed Field @SortIcon(nameof(AccountChangesLog.ChangedField))
+                        </th>
+                        <th>Old Value</th>
+                        <th>New Value</th>
+                        <th @onclick="() => SortByColumn(nameof(AccountChangesLog.Timestamp))" style="cursor:pointer">
+                            Timestamp (UTC) @SortIcon(nameof(AccountChangesLog.Timestamp))
+                        </th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var log in _displayedLogs!)
+                    {
+                        <tr>
+                            <td>@log.LogId</td>
+                            <td>@log.AccountId</td>
+                            <td>@log.ChangedField</td>
+                            <td>@log.OldValue</td>
+                            <td>@log.NewValue</td>
+                            <td>@log.Timestamp</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<AccountChangesLog>? _logs;
+    private List<AccountChangesLog>? _displayedLogs;
+    private string _searchTerm = "";
+
+    private string _sortColumn = nameof(AccountChangesLog.LogId);
+    private bool _sortAscending = true;
+
+    private Timer? _searchTimer;
+    private const int SearchDelay = 400; // ms
+
+    protected override async Task OnInitializedAsync()
+    {
+        _logs = await Http.GetFromJsonAsync<List<AccountChangesLog>>("api/AccountChangesLog");
+        _displayedLogs = _logs?.ToList() ?? new List<AccountChangesLog>();
+    }
+
+    private void OnSearchChanged(ChangeEventArgs e)
+    {
+        _searchTerm = e.Value?.ToString() ?? "";
+        _searchTimer?.Stop();
+        _searchTimer = new Timer(SearchDelay);
+        _searchTimer.Elapsed += async (_, _) =>
+        {
+            _searchTimer?.Stop();
+            await InvokeAsync(() =>
+            {
+                ApplySortAndFilter();
+                StateHasChanged();
+            });
+        };
+        _searchTimer.Start();
+    }
+
+    private void SortByColumn(string col)
+    {
+        if (_sortColumn == col)
+            _sortAscending = !_sortAscending;
+        else
+        {
+            _sortColumn = col;
+            _sortAscending = true;
+        }
+
+        ApplySortAndFilter();
+    }
+
+    private void ApplySortAndFilter()
+    {
+        if (_logs == null) return;
+        IEnumerable<AccountChangesLog> query = _logs;
+
+        if (!string.IsNullOrWhiteSpace(_searchTerm))
+        {
+            query = query.Where(l => l.ChangedField.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+        }
+
+        query = _sortColumn switch
+        {
+            nameof(AccountChangesLog.AccountId) => _sortAscending
+                ? query.OrderBy(l => l.AccountId)
+                : query.OrderByDescending(l => l.AccountId),
+            nameof(AccountChangesLog.ChangedField) => _sortAscending
+                ? query.OrderBy(l => l.ChangedField)
+                : query.OrderByDescending(l => l.ChangedField),
+            nameof(AccountChangesLog.Timestamp) => _sortAscending
+                ? query.OrderBy(l => l.Timestamp)
+                : query.OrderByDescending(l => l.Timestamp),
+            _ =>
+                _sortAscending
+                    ? query.OrderBy(l => l.LogId)
+                    : query.OrderByDescending(l => l.LogId)
+        };
+
+        _displayedLogs = query.ToList();
+    }
+
+    private RenderFragment SortIcon(string column)
+    {
+        return builder =>
+        {
+            if (_sortColumn != column) return;
+            var icon = _sortAscending ? "▲" : "▼";
+            builder.AddContent(0, icon);
+        };
+    }
+
+}

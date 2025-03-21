@@ -1,0 +1,208 @@
+﻿@page "/accounts"
+@using AccountManager
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h3 class="mb-0">Manage Accounts</h3>
+            <button class="btn btn-light btn-sm" @onclick="CreateNewAccount">
+                <i class="fas fa-plus"></i> New Account
+            </button>
+        </div>
+        <div class="card-body">
+
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger">@errorMessage</div>
+            }
+
+            <div class="row mb-3">
+                <div class="col-sm-4">
+                    <input class="form-control"
+                           placeholder="Search by company..."
+                           @oninput="OnSearchChanged"
+                           value="@searchTerm" />
+                </div>
+            </div>
+
+            <table class="table table-striped table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th @onclick="() => SortByColumn(nameof(Account.AccountId))" style="cursor:pointer">
+                            ID @SortIcon(nameof(Account.AccountId))
+                        </th>
+                        <th @onclick="() => SortByColumn(nameof(Account.CompanyName))" style="cursor:pointer">
+                            Company @SortIcon(nameof(Account.CompanyName))
+                        </th>
+                        <th @onclick="() => SortByColumn(nameof(Account.IsActive))" style="cursor:pointer">
+                            Active? @SortIcon(nameof(Account.IsActive))
+                        </th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (displayedAccounts != null)
+                    {
+                        foreach (var a in displayedAccounts)
+                        {
+                            <tr>
+                                <td>@a.AccountId</td>
+                                <td>@a.CompanyName</td>
+                                <td>@(a.IsActive ? "Yes" : "No")</td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-primary me-2" @onclick="() => EditAccount(a.AccountId)">Edit</button>
+                                    <button class="btn btn-sm btn-danger" @onclick="() => DeleteAccount(a.AccountId)">Delete</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Account>? accounts;        // The raw data from the server
+    private List<Account>? displayedAccounts;  // The filtered/sorted subset
+    private string searchTerm = "";
+    private string errorMessage = "";
+
+    // Sorting state
+    private string sortColumn = nameof(Account.AccountId);
+    private bool sortAscending = true;
+
+    // Timer for debouncing search
+    private System.Timers.Timer? _searchTimer;
+    private const int SearchDelay = 400; // ms
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAccounts();
+    }
+
+    private async Task LoadAccounts()
+    {
+        try
+        {
+            errorMessage = "";
+            accounts = await Http.GetFromJsonAsync<List<Account>>("api/Accounts");
+            ApplySortAndFilter();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void OnSearchChanged(ChangeEventArgs e)
+    {
+        searchTerm = e.Value?.ToString() ?? "";
+
+        // Debounce: reset timer
+        _searchTimer?.Stop();
+        _searchTimer = new System.Timers.Timer(SearchDelay);
+        _searchTimer.Elapsed += async (s, e) =>
+        {
+            _searchTimer?.Stop();
+            await InvokeAsync(() =>
+            {
+                ApplySortAndFilter();
+                StateHasChanged();
+            });
+        };
+        _searchTimer.Start();
+    }
+
+    private void SortByColumn(string column)
+    {
+        if (sortColumn == column)
+            sortAscending = !sortAscending;
+        else
+        {
+            sortColumn = column;
+            sortAscending = true;
+        }
+
+        ApplySortAndFilter();
+    }
+
+    private void ApplySortAndFilter()
+    {
+        if (accounts == null)
+            return;
+
+        IEnumerable<Account> query = accounts;
+
+        // 1) Filter
+        if (!string.IsNullOrWhiteSpace(searchTerm))
+        {
+            query = query.Where(a => a.CompanyName != null &&
+                                     a.CompanyName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+        }
+
+        // 2) Sort
+        query = sortColumn switch
+        {
+            nameof(Account.CompanyName) => sortAscending
+                ? query.OrderBy(a => a.CompanyName)
+                : query.OrderByDescending(a => a.CompanyName),
+            nameof(Account.IsActive) => sortAscending
+                ? query.OrderBy(a => a.IsActive)
+                : query.OrderByDescending(a => a.IsActive),
+            _ => // default sort by AccountId
+                sortAscending
+                ? query.OrderBy(a => a.AccountId)
+                : query.OrderByDescending(a => a.AccountId),
+        };
+
+        displayedAccounts = query.ToList();
+    }
+
+    private RenderFragment SortIcon(string column) => builder =>
+    {
+        if (sortColumn == column)
+        {
+            // if current column is sorted, show arrow
+            var icon = sortAscending ? "▲" : "▼";
+            builder.AddContent(0, icon);
+        }
+    };
+
+    private void CreateNewAccount()
+    {
+        Navigation.NavigateTo("/accounts/create");
+    }
+
+    private void EditAccount(int id)
+    {
+        Navigation.NavigateTo($"/accounts/edit/{id}");
+    }
+
+    private async Task DeleteAccount(int id)
+    {
+        try
+        {
+            errorMessage = "";
+            var resp = await Http.DeleteAsync($"api/Accounts/{id}");
+            if (!resp.IsSuccessStatusCode)
+            {
+                var msg = await resp.Content.ReadAsStringAsync();
+                errorMessage = $"Delete failed: {msg}";
+            }
+            else
+            {
+                await LoadAccounts();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+}

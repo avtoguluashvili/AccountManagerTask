@@ -1,0 +1,87 @@
+﻿@page "/subscriptions/edit/{id:int}"
+@using AccountManager.Domain.Entities
+@using Microsoft.AspNetCore.Components.Forms
+@using System.Net.Http.Json
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header bg-success text-white">
+            <h3 class="mb-0">Edit Subscription</h3>
+        </div>
+        <div class="card-body">
+            @if (!string.IsNullOrEmpty(errorMessage))
+            {
+                <div class="alert alert-danger">@errorMessage</div>
+            }
+            @if (model == null)
+            {
+                <p>Loading...</p>
+            }
+            else
+            {
+                <EditForm Model="@model" OnValidSubmit="@UpdateSubscription">
+                    <DataAnnotationsValidator />
+                    <ValidationSummary />
+
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <InputText class="form-control" @bind-Value="model.Description" />
+                    </div>
+                    <div class="mb-3 form-check">
+                        <InputCheckbox class="form-check-input" @bind-Value="model.IsDefault" />
+                        <label class="form-check-label ms-2">Is Default?</label>
+                    </div>
+
+                    <div class="text-end">
+                        <button class="btn btn-secondary" @onclick="Cancel">Cancel</button>
+                        <button class="btn btn-primary ms-2" type="submit">Save</button>
+                    </div>
+                </EditForm>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int id { get; set; }
+    private Subscription? model;
+    private string errorMessage = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            model = await Http.GetFromJsonAsync<Subscription>($"api/Subscription/{id}");
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private async Task UpdateSubscription()
+    {
+        if (model == null) return;
+
+        try
+        {
+            var resp = await Http.PutAsJsonAsync($"api/Subscription/{id}", model);
+            if (resp.IsSuccessStatusCode)
+                Nav.NavigateTo("/subscriptions");
+            else
+                errorMessage = await resp.Content.ReadAsStringAsync();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void Cancel()
+    {
+        Nav.NavigateTo("/subscriptions");
+    }
+
+}

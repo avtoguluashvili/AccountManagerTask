@@ -1,0 +1,203 @@
+﻿@page "/accounts"
+@using System.Timers
+@using AccountManager.Domain.Entities
+@inject HttpClient Http
+@inject NavigationManager Navigation
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h3 class="mb-0">Manage Accounts</h3>
+            <button class="btn btn-light btn-sm" @onclick="CreateNewAccount">
+                <i class="fas fa-plus"></i> New Account
+            </button>
+        </div>
+        <div class="card-body">
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger">@_errorMessage</div>
+            }
+
+            <div class="row mb-3">
+                <div class="col-sm-4">
+                    <input class="form-control"
+                           placeholder="Search by company..."
+                           @oninput="OnSearchChanged"
+                           value="@_searchTerm"/>
+                </div>
+            </div>
+
+            <table class="table table-striped table-hover">
+                <thead class="table-light">
+                <tr>
+                    <th @onclick="() => SortByColumn(nameof(Account.AccountId))" style="cursor:pointer">
+                        ID @SortIcon(nameof(Account.AccountId))
+                    </th>
+                    <th @onclick="() => SortByColumn(nameof(Account.CompanyName))" style="cursor:pointer">
+                        Company @SortIcon(nameof(Account.CompanyName))
+                    </th>
+                    <th @onclick="() => SortByColumn(nameof(Account.IsActive))" style="cursor:pointer">
+                        Active? @SortIcon(nameof(Account.IsActive))
+                    </th>
+                    <th class="text-end">Actions</th>
+                </tr>
+                </thead>
+                <tbody>
+                @if (_displayedAccounts != null)
+                {
+                    foreach (var a in _displayedAccounts)
+                    {
+                        <tr>
+                            <td>@a.AccountId</td>
+                            <td>@a.CompanyName</td>
+                            <td>@(a.IsActive ? "Yes" : "No")</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-primary me-2" @onclick="() => EditAccount(a.AccountId)">Edit</button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteAccount(a.AccountId)">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Account>? _accounts;
+    private List<Account>? _displayedAccounts;
+    private string _searchTerm = "";
+    private string _errorMessage = "";
+
+    private string _sortColumn = nameof(Account.AccountId);
+    private bool _sortAscending = true;
+
+    // Timer for debouncing search
+    private Timer? _searchTimer;
+    private const int SearchDelay = 400; // ms
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAccounts();
+    }
+
+    private async Task LoadAccounts()
+    {
+        try
+        {
+            _errorMessage = "";
+            _accounts = await Http.GetFromJsonAsync<List<Account>>("api/Accounts");
+            ApplySortAndFilter();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private void OnSearchChanged(ChangeEventArgs e)
+    {
+        _searchTerm = e.Value?.ToString() ?? "";
+
+        // Debounce: reset timer
+        _searchTimer?.Stop();
+        _searchTimer = new Timer(SearchDelay);
+        _searchTimer.Elapsed += async (_, _) =>
+        {
+            _searchTimer?.Stop();
+            await InvokeAsync(() =>
+            {
+                ApplySortAndFilter();
+                StateHasChanged();
+            });
+        };
+        _searchTimer.Start();
+    }
+
+    private void SortByColumn(string column)
+    {
+        if (_sortColumn == column)
+            _sortAscending = !_sortAscending;
+        else
+        {
+            _sortColumn = column;
+            _sortAscending = true;
+        }
+
+        ApplySortAndFilter();
+    }
+
+    private void ApplySortAndFilter()
+    {
+        if (_accounts == null)
+            return;
+
+        IEnumerable<Account> query = _accounts;
+
+        if (!string.IsNullOrWhiteSpace(_searchTerm))
+        {
+            query = query.Where(a => a.CompanyName.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+        }
+
+        query = _sortColumn switch
+        {
+            nameof(Account.CompanyName) => _sortAscending
+                ? query.OrderBy(a => a.CompanyName)
+                : query.OrderByDescending(a => a.CompanyName),
+            nameof(Account.IsActive) => _sortAscending
+                ? query.OrderBy(a => a.IsActive)
+                : query.OrderByDescending(a => a.IsActive),
+            _ =>
+                _sortAscending
+                    ? query.OrderBy(a => a.AccountId)
+                    : query.OrderByDescending(a => a.AccountId)
+        };
+
+        _displayedAccounts = query.ToList();
+    }
+
+    private RenderFragment SortIcon(string column)
+    {
+        return builder =>
+        {
+            if (_sortColumn != column) return;
+            var icon = _sortAscending ? "▲" : "▼";
+            builder.AddContent(0, icon);
+        };
+    }
+
+    private void CreateNewAccount()
+    {
+        Navigation.NavigateTo("/accounts/create");
+    }
+
+    private void EditAccount(int id)
+    {
+        Navigation.NavigateTo($"/accounts/edit/{id}");
+    }
+
+    private async Task DeleteAccount(int id)
+    {
+        try
+        {
+            _errorMessage = "";
+            var resp = await Http.DeleteAsync($"api/Accounts/{id}");
+            if (!resp.IsSuccessStatusCode)
+            {
+                var msg = await resp.Content.ReadAsStringAsync();
+                _errorMessage = $"Delete failed: {msg}";
+            }
+            else
+            {
+                await LoadAccounts();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+}

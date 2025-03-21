@@ -1,0 +1,149 @@
+﻿@page "/accounts/edit/{id:int}"
+@using AccountManager.Domain.Entities
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header bg-warning text-dark">
+            <h3 class="card-title mb-0">Edit Account</h3>
+        </div>
+        <div class="card-body">
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger">@_errorMessage</div>
+            }
+            @if (_account == null || _subscriptions == null || _statuses == null)
+            {
+                <p>Loading...</p>
+            }
+            else
+            {
+                <EditForm Model="@_account" OnValidSubmit="@SaveChanges">
+                    <DataAnnotationsValidator/>
+                    <ValidationSummary/>
+
+                    <div class="mb-3">
+                        <label class="form-label">Company Name</label>
+                        <InputText class="form-control" @bind-Value="_account.CompanyName"/>
+                        <ValidationMessage For="@(() => _account.CompanyName)"/>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Country</label>
+                        <InputText class="form-control" @bind-Value="_account.Country"/>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <InputCheckbox class="form-check-input" @bind-Value="_account.IsActive"/>
+                        <label class="form-check-label ms-2">Active?</label>
+                    </div>
+
+                    <!-- Subscription dropdown -->
+                    <div class="mb-3">
+                        <label class="form-label">Subscription Plan</label>
+                        <select class="form-select" @bind="_account.AccountSubscription!.SubscriptionId">
+                            @foreach (var s in _subscriptions)
+                            {
+                                <option value="@s.SubscriptionId">@s.Description</option>
+                            }
+                        </select>
+                    </div>
+
+                    <!-- Subscription Status dropdown -->
+                    <div class="mb-3">
+                        <label class="form-label">Subscription Status</label>
+                        <select class="form-select" @bind="_account.AccountSubscription.SubscriptionStatusId">
+                            @foreach (var st in _statuses)
+                            {
+                                <option value="@st.SubscriptionStatusId">@st.Description</option>
+                            }
+                        </select>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <InputCheckbox class="form-check-input"
+                                       @bind-Value="_account.AccountSubscription.Is2FaAllowed"/>
+                        <label class="form-check-label ms-2">Allow 2FA?</label>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <InputCheckbox class="form-check-input"
+                                       @bind-Value="_account.AccountSubscription.IsIpFilterAllowed"/>
+                        <label class="form-check-label ms-2">Allow IP Filtering?</label>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <InputCheckbox class="form-check-input"
+                                       @bind-Value="_account.AccountSubscription.IsSessionTimeoutAllowed"/>
+                        <label class="form-check-label ms-2">Allow Session Timeout?</label>
+                    </div>
+
+                    <div class="mb-3 form-check">
+                        <InputCheckbox class="form-check-input" @bind-Value="_account.Is2FaEnabled"/>
+                        <label class="form-check-label ms-2">2FA Enabled for this account?</label>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <InputCheckbox class="form-check-input" @bind-Value="_account.IsIpFilterEnabled"/>
+                        <label class="form-check-label ms-2">IP Filter Enabled for this account?</label>
+                    </div>
+                    <div class="mb-3 form-check">
+                        <InputCheckbox class="form-check-input" @bind-Value="_account.IsSessionTimeoutEnabled"/>
+                        <label class="form-check-label ms-2">Session Timeout Enabled?</label>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Session Timeout (minutes)</label>
+                        <InputNumber class="form-control" @bind-Value="_account.SessionTimeOut"/>
+                    </div>
+
+                    <div class="text-end">
+                        <button class="btn btn-secondary" @onclick="Cancel">Cancel</button>
+                        <button class="btn btn-primary ms-2" type="submit">Save</button>
+                    </div>
+                </EditForm>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+    private Account? _account;
+    private List<Subscription>? _subscriptions;
+    private List<AccountSubscriptionStatus>? _statuses;
+    private string _errorMessage = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _account = await Http.GetFromJsonAsync<Account>($"api/Accounts/{Id}");
+            _subscriptions = await Http.GetFromJsonAsync<List<Subscription>>("api/Subscription");
+            _statuses = await Http.GetFromJsonAsync<List<AccountSubscriptionStatus>>("api/AccountSubscriptionStatus");
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private async Task SaveChanges()
+    {
+        if (_account == null) return;
+        try
+        {
+            _errorMessage = "";
+            var resp = await Http.PutAsJsonAsync($"api/Accounts/{Id}", _account);
+            if (resp.IsSuccessStatusCode)
+                Nav.NavigateTo("/accounts");
+            else
+                _errorMessage = await resp.Content.ReadAsStringAsync();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private void Cancel()
+    {
+        Nav.NavigateTo("/accounts");
+    }
+
+}

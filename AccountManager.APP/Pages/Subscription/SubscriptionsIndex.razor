@@ -1,0 +1,194 @@
+﻿@page "/subscriptions"
+@using System.Timers
+@using AccountManager.Domain.Entities
+@inject HttpClient Http
+@inject NavigationManager Nav
+
+<div class="container my-4">
+    <div class="card">
+        <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+            <h3 class="mb-0">Manage Subscriptions</h3>
+            <button class="btn btn-light btn-sm" @onclick="CreateNew">Create New</button>
+        </div>
+        <div class="card-body">
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger">@_errorMessage</div>
+            }
+            @if (_subscriptions == null)
+            {
+                <p>Loading...</p>
+            }
+            else
+            {
+                <div class="row mb-3">
+                    <div class="col-sm-4">
+                        <input class="form-control"
+                               placeholder="Search..."
+                               @oninput="OnSearchChanged"
+                               value="@_searchTerm"/>
+                    </div>
+                </div>
+
+                <table class="table table-bordered table-hover">
+                    <thead class="table-light">
+                    <tr>
+                        <th @onclick="() => SortByColumn(nameof(Subscription.SubscriptionId))" style="cursor:pointer">
+                            ID @SortIcon(nameof(Subscription.SubscriptionId))
+                        </th>
+                        <th @onclick="() => SortByColumn(nameof(Subscription.Description))" style="cursor:pointer">
+                            Description @SortIcon(nameof(Subscription.Description))
+                        </th>
+                        <th @onclick="() => SortByColumn(nameof(Subscription.IsDefault))" style="cursor:pointer">
+                            Default? @SortIcon(nameof(Subscription.IsDefault))
+                        </th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var s in _displayedSubscriptions!)
+                    {
+                        <tr>
+                            <td>@s.SubscriptionId</td>
+                            <td>@s.Description</td>
+                            <td>@(s.IsDefault ? "Yes" : "No")</td>
+                            <td class="text-end">
+                                <button class="btn btn-sm btn-primary me-2" @onclick="() => EditSubscription(s.SubscriptionId)">Edit</button>
+                                <button class="btn btn-sm btn-danger" @onclick="() => DeleteSubscription(s.SubscriptionId)">Delete</button>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Subscription>? _subscriptions;
+    private List<Subscription>? _displayedSubscriptions;
+    private string _errorMessage = "";
+    private string _searchTerm = "";
+
+    private string _sortColumn = nameof(Subscription.SubscriptionId);
+    private bool _sortAscending = true;
+
+    private Timer? _searchTimer;
+    private const int SearchDelay = 400;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _subscriptions = await Http.GetFromJsonAsync<List<Subscription>>("api/Subscription");
+            _displayedSubscriptions = _subscriptions?.ToList() ?? new List<Subscription>();
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private void OnSearchChanged(ChangeEventArgs e)
+    {
+        _searchTerm = e.Value?.ToString() ?? "";
+        _searchTimer?.Stop();
+        _searchTimer = new Timer(SearchDelay);
+        _searchTimer.Elapsed += async (_, _) =>
+        {
+            _searchTimer?.Stop();
+            await InvokeAsync(() =>
+            {
+                ApplySortAndFilter();
+                StateHasChanged();
+            });
+        };
+        _searchTimer.Start();
+    }
+
+    private void SortByColumn(string col)
+    {
+        if (_sortColumn == col)
+            _sortAscending = !_sortAscending;
+        else
+        {
+            _sortColumn = col;
+            _sortAscending = true;
+        }
+
+        ApplySortAndFilter();
+    }
+
+    private void ApplySortAndFilter()
+    {
+        if (_subscriptions == null) return;
+        IEnumerable<Subscription> query = _subscriptions;
+
+        if (!string.IsNullOrWhiteSpace(_searchTerm))
+        {
+            query = query.Where(s => s.Description.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase));
+        }
+
+        query = _sortColumn switch
+        {
+            nameof(Subscription.Description) => _sortAscending
+                ? query.OrderBy(s => s.Description)
+                : query.OrderByDescending(s => s.Description),
+            nameof(Subscription.IsDefault) => _sortAscending
+                ? query.OrderBy(s => s.IsDefault)
+                : query.OrderByDescending(s => s.IsDefault),
+            _ => 
+                _sortAscending
+                    ? query.OrderBy(s => s.SubscriptionId)
+                    : query.OrderByDescending(s => s.SubscriptionId)
+        };
+
+        _displayedSubscriptions = query.ToList();
+    }
+
+    private RenderFragment SortIcon(string column)
+    {
+        return builder =>
+        {
+            if (_sortColumn != column) return;
+            var icon = _sortAscending ? "▲" : "▼";
+            builder.AddContent(0, icon);
+        };
+    }
+
+    private void CreateNew()
+    {
+        Nav.NavigateTo("/subscriptions/create");
+    }
+
+    private void EditSubscription(int id)
+    {
+        Nav.NavigateTo($"/subscriptions/edit/{id}");
+    }
+
+    private async Task DeleteSubscription(int id)
+    {
+        try
+        {
+            var resp = await Http.DeleteAsync($"api/Subscription/{id}");
+            if (!resp.IsSuccessStatusCode)
+            {
+                _errorMessage = await resp.Content.ReadAsStringAsync();
+                return;
+            }
+
+            var idx = _subscriptions!.FindIndex(x => x.SubscriptionId == id);
+            if (idx >= 0)
+            {
+                _subscriptions.RemoveAt(idx);
+                ApplySortAndFilter();
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+}
